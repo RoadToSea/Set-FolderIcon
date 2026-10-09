@@ -6,6 +6,10 @@
 </p>
 
 <p align="center">
+  <strong><a href="README_EN.md">English</a> | 简体中文</strong>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT">
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6.svg" alt="Windows">
   <img src="https://img.shields.io/badge/PowerShell-5.1%2B-5391FE.svg" alt="PowerShell">
@@ -62,7 +66,8 @@ Set-FolderIcon/
 ├── Unregister-ContextMenu.reg  # 注册表清理模板 (供手动导入参考)
 ├── LICENSE                     # MIT 开源许可证
 ├── .gitignore
-└── README.md                   # 项目说明文档
+├── README.md                   # 中文说明文档 (简体中文)
+└── README_EN.md                # 英文说明文档 (English)
 ```
 
 ---
