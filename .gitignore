@@ -1,0 +1,20 @@
+﻿# Windows
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+
+# Editors
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Test folders
+/test/
+/temp/
