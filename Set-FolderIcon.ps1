@@ -246,17 +246,20 @@ function Set-FolderIcon {
         [int]$IconIndex = 0
     )
 
-    $folderItem = Get-Item -LiteralPath $FolderPath
-    $iniPath = Join-Path $folderItem.FullName "desktop.ini"
+    try {
+        $folderItem = Get-Item -LiteralPath $FolderPath
+        $iniPath = Join-Path $folderItem.FullName "desktop.ini"
 
-    # 1. 接触已有 desktop.ini 的只读/隐藏/系统属性以便写入
-    if (Test-Path -LiteralPath $iniPath) {
-        $existingIni = Get-Item -LiteralPath $iniPath -Force
-        $existingIni.Attributes = [System.IO.FileAttributes]::Normal
-    }
+        # 1. 解除已有 desktop.ini 的只读/隐藏/系统属性以便写入
+        if (Test-Path -LiteralPath $iniPath) {
+            try {
+                $existingIni = Get-Item -LiteralPath $iniPath -Force
+                $existingIni.Attributes = [System.IO.FileAttributes]::Normal
+            } catch {}
+        }
 
-    # 2. 构造 desktop.ini 内容
-    $iniContent = @"
+        # 2. 构造 desktop.ini 内容
+        $iniContent = @"
 [.ShellClassInfo]
 IconResource=$IconRelOrAbsPath,$IconIndex
 [ViewState]
@@ -265,51 +268,60 @@ Vid=
 FolderType=Generic
 "@
 
-    # 使用 Unicode (UTF-16 LE with BOM) 写入，原生支持中文路径
-    [System.IO.File]::WriteAllText($iniPath, $iniContent, [System.Text.Encoding]::Unicode)
+        # 使用 Unicode (UTF-16 LE with BOM) 写入，原生支持中文路径
+        [System.IO.File]::WriteAllText($iniPath, $iniContent, [System.Text.Encoding]::Unicode)
 
-    # 3. 必须设置 desktop.ini 为 Hidden + System
-    $iniFile = Get-Item -LiteralPath $iniPath -Force
-    $iniFile.Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System
+        # 3. 必须设置 desktop.ini 为 Hidden + System
+        $iniFile = Get-Item -LiteralPath $iniPath -Force
+        $iniFile.Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System
 
-    # 4. 关键：文件夹必须具有 ReadOnly 属性，Explorer 才会读取 desktop.ini
-    # (注：Windows 中文件夹的只读属性不影响内部文件修改，仅用于指示自定义视图)
-    $folderItem = Get-Item -LiteralPath $FolderPath
-    $folderItem.Attributes = $folderItem.Attributes -bor [System.IO.FileAttributes]::ReadOnly
-    $folderItem.LastWriteTime = Get-Date
+        # 4. 关键：文件夹必须具有 ReadOnly 属性，Explorer 才会读取 desktop.ini
+        # (注：Windows 中文件夹的只读属性不影响内部文件修改，仅用于指示自定义视图)
+        $folderItem = Get-Item -LiteralPath $FolderPath
+        $folderItem.Attributes = $folderItem.Attributes -bor [System.IO.FileAttributes]::ReadOnly
+        $folderItem.LastWriteTime = Get-Date
 
-    # 5. 触发 Windows Shell 刷新通知
-    [Win32IconHelper]::SHChangeNotify($SHCNE_UPDATEITEM, $SHCNF_PATHW, $folderItem.FullName, $null)
-    [Win32IconHelper]::SHChangeNotify($SHCNE_UPDATEDIR,  $SHCNF_PATHW, $folderItem.FullName, $null)
-    [Win32IconHelper]::SHChangeNotify($SHCNE_ASSOCCHANGED, $SHCNF_IDLIST, $null, $null)
+        # 5. 触发 Windows Shell 刷新通知
+        [Win32IconHelper]::SHChangeNotify($SHCNE_UPDATEITEM, $SHCNF_PATHW, $folderItem.FullName, $null)
+        [Win32IconHelper]::SHChangeNotify($SHCNE_UPDATEDIR,  $SHCNF_PATHW, $folderItem.FullName, $null)
+        [Win32IconHelper]::SHChangeNotify($SHCNE_ASSOCCHANGED, $SHCNF_IDLIST, $null, $null)
 
-    return $true
+        return $true
+    } catch {
+        Write-Warning "写入图标配置失败 [$FolderPath]: $($_.Exception.Message)"
+        return $false
+    }
 }
 
 # 还原文件夹为默认系统图标
 function Reset-FolderIcon {
     param([Parameter(Mandatory = $true)] [string]$FolderPath)
 
-    $folderItem = Get-Item -LiteralPath $FolderPath
-    $iniPath = Join-Path $folderItem.FullName "desktop.ini"
+    try {
+        $folderItem = Get-Item -LiteralPath $FolderPath
+        $iniPath = Join-Path $folderItem.FullName "desktop.ini"
 
-    if (Test-Path -LiteralPath $iniPath) {
-        $iniFile = Get-Item -LiteralPath $iniPath -Force
-        $iniFile.Attributes = [System.IO.FileAttributes]::Normal
-        Remove-Item -LiteralPath $iniPath -Force
+        if (Test-Path -LiteralPath $iniPath) {
+            $iniFile = Get-Item -LiteralPath $iniPath -Force
+            $iniFile.Attributes = [System.IO.FileAttributes]::Normal
+            Remove-Item -LiteralPath $iniPath -Force
+        }
+
+        # 取消文件夹的 ReadOnly 属性
+        $folderItem = Get-Item -LiteralPath $FolderPath
+        $folderItem.Attributes = $folderItem.Attributes -band (-bnot [System.IO.FileAttributes]::ReadOnly)
+        $folderItem.LastWriteTime = Get-Date
+
+        # 刷新通知
+        [Win32IconHelper]::SHChangeNotify($SHCNE_UPDATEITEM, $SHCNF_PATHW, $folderItem.FullName, $null)
+        [Win32IconHelper]::SHChangeNotify($SHCNE_UPDATEDIR,  $SHCNF_PATHW, $folderItem.FullName, $null)
+        [Win32IconHelper]::SHChangeNotify($SHCNE_ASSOCCHANGED, $SHCNF_IDLIST, $null, $null)
+
+        return $true
+    } catch {
+        Write-Warning "还原图标失败 [$FolderPath]: $($_.Exception.Message)"
+        return $false
     }
-
-    # 取消文件夹的 ReadOnly 属性
-    $folderItem = Get-Item -LiteralPath $FolderPath
-    $folderItem.Attributes = $folderItem.Attributes -band (-bnot [System.IO.FileAttributes]::ReadOnly)
-    $folderItem.LastWriteTime = Get-Date
-
-    # 刷新通知
-    [Win32IconHelper]::SHChangeNotify($SHCNE_UPDATEITEM, $SHCNF_PATHW, $folderItem.FullName, $null)
-    [Win32IconHelper]::SHChangeNotify($SHCNE_UPDATEDIR,  $SHCNF_PATHW, $folderItem.FullName, $null)
-    [Win32IconHelper]::SHChangeNotify($SHCNE_ASSOCCHANGED, $SHCNF_IDLIST, $null, $null)
-
-    return $true
 }
 
 # 处理单个文件夹逻辑
@@ -321,26 +333,33 @@ function Process-SingleFolder {
 
     if (-not (Test-Path -LiteralPath $TargetFolder -PathType Container)) {
         Write-Warning "路径不存在或不是文件夹: $TargetFolder"
-        return
+        return $false
     }
 
     $folderItem = Get-Item -LiteralPath $TargetFolder
     $folderName = $folderItem.Name
 
     if ($IsRestore) {
-        Reset-FolderIcon -FolderPath $folderItem.FullName | Out-Null
-        Write-Host "[已还原] $folderName -> 恢复系统默认图标" -ForegroundColor Yellow
-        return
+        $ok = Reset-FolderIcon -FolderPath $folderItem.FullName
+        if ($ok) {
+            Write-Host "[已还原] $folderName -> 恢复系统默认图标" -ForegroundColor Yellow
+            return $true
+        }
+        return $false
     }
 
     $best = Find-FolderAppIcon -FolderPath $folderItem.FullName
     if ($null -eq $best) {
         Write-Host "[跳过] $folderName -> 未找到包含图标的应用程序 (.exe / .ico)" -ForegroundColor DarkGray
-        return
+        return $false
     }
 
-    Set-FolderIcon -FolderPath $folderItem.FullName -IconRelOrAbsPath $best.RelPath -IconIndex $best.IconIndex | Out-Null
-    Write-Host "[成功] $folderName -> 匹配到: $($best.RelPath) [$($best.Reason)]" -ForegroundColor Green
+    $ok = Set-FolderIcon -FolderPath $folderItem.FullName -IconRelOrAbsPath $best.RelPath -IconIndex $best.IconIndex
+    if ($ok) {
+        Write-Host "[成功] $folderName -> 匹配到: $($best.RelPath) [$($best.Reason)]" -ForegroundColor Green
+        return $true
+    }
+    return $false
 }
 
 # 弹出文件夹选择对话框
@@ -369,6 +388,9 @@ function Show-FolderBrowserDialog {
 
 # 处理通过参数传入的路径列表
 if ($Path -and $Path.Count -gt 0) {
+    $totalSuccess = 0
+    $totalProcessed = 0
+
     foreach ($p in $Path) {
         if (-not (Test-Path -LiteralPath $p)) {
             Write-Warning "路径无效: $p"
@@ -378,14 +400,49 @@ if ($Path -and $Path.Count -gt 0) {
         if ($AllSubFolders) {
             # 批量处理该路径下的所有一级子目录
             $subFolders = Get-ChildItem -LiteralPath $p -Directory
-            Write-Host "`n>>> 开始批量处理 [$p] 下的 $($subFolders.Count) 个子文件夹..." -ForegroundColor Cyan
-            $successCount = 0
+            Write-Host "============================================================" -ForegroundColor Cyan
+            Write-Host "  正在批量处理目录下的所有子文件夹..." -ForegroundColor White
+            Write-Host "  目标目录: $p" -ForegroundColor Gray
+            Write-Host "  子文件夹总数: $($subFolders.Count)" -ForegroundColor Gray
+            Write-Host "============================================================" -ForegroundColor Cyan
+            
             foreach ($sub in $subFolders) {
-                Process-SingleFolder -TargetFolder $sub.FullName -IsRestore:$Restore
+                # 跳过本工具自身所在目录
+                if ($PSScriptRoot -and ($sub.FullName -eq $PSScriptRoot)) {
+                    continue
+                }
+                $totalProcessed++
+                $res = Process-SingleFolder -TargetFolder $sub.FullName -IsRestore:$Restore
+                if ($res) { $totalSuccess++ }
             }
-            Write-Host ">>> 批量处理完成！`n" -ForegroundColor Cyan
+            Write-Host "============================================================" -ForegroundColor Cyan
+            Write-Host ">>> 批量处理完成！成功: $totalSuccess / 总计: $totalProcessed`n" -ForegroundColor Cyan
         } else {
-            Process-SingleFolder -TargetFolder $p -IsRestore:$Restore
+            $totalProcessed++
+            $res = Process-SingleFolder -TargetFolder $p -IsRestore:$Restore
+            if ($res) { $totalSuccess++ }
+        }
+    }
+
+    # 如果不是静默模式，显示完成状态并在倒计时后自动关闭（也可按任意键立即关闭）
+    if (-not $Quiet) {
+        $actionDesc = if ($Restore) { "还原" } else { "设置" }
+        Write-Host "操作完成 (成功 $actionDesc $totalSuccess 个文件夹)。" -ForegroundColor Green
+        Write-Host "窗口将在 2 秒后自动关闭 (或按任意键立即退出)..." -ForegroundColor Gray
+
+        $timeout = 20
+        while ($timeout -gt 0) {
+            try {
+                if ([System.Console]::KeyAvailable) {
+                    [System.Console]::ReadKey($true) | Out-Null
+                    break
+                }
+            } catch {
+                Start-Sleep -Seconds 2
+                break
+            }
+            Start-Sleep -Milliseconds 100
+            $timeout--
         }
     }
     exit 0

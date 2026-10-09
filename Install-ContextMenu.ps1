@@ -5,10 +5,10 @@
 
 .DESCRIPTION
     将以下右键菜单项注册到系统：
-    1. 选中文件夹右键 -> 应用此文件夹内程序图标
-    2. 文件夹空白处右键 -> 应用当前文件夹内程序图标
-    3. 选中文件夹右键 -> 还原为默认文件夹图标
-    4. 文件夹空白处右键 -> 还原当前文件夹图标
+    1. 选中单个文件夹右键 -> 应用此文件夹内程序图标 (仅处理该文件夹)
+    2. 选中单个文件夹右键 -> 还原为默认文件夹图标 (仅还原该文件夹)
+    3. 文件夹内部空白处右键 -> 批量应用所有子文件夹图标 (批量处理当前目录下所有子文件夹)
+    4. 文件夹内部空白处右键 -> 批量还原所有子文件夹图标 (批量还原当前目录下所有子文件夹)
 
 .PARAMETER AllUsers
     为本机所有用户注册（需要管理员权限）。默认仅为当前用户注册（无需管理员权限）。
@@ -61,38 +61,53 @@ function Set-RegKeyAndValues {
     Set-ItemProperty -LiteralPath $cmdPath -Name "(default)" -Value $CommandString -Force
 }
 
+# 辅助函数：安全删除已废弃或冲突的注册表项
+function Remove-LegacyKey {
+    param([string]$SubKey)
+    $fullPath = Join-Path $rootKey $SubKey
+    if (Test-Path -LiteralPath $fullPath) {
+        try {
+            Remove-Item -LiteralPath $fullPath -Recurse -Force -ErrorAction SilentlyContinue
+        } catch {}
+    }
+}
+
 try {
-    # 1. 选中文件夹右键：设置应用图标
+    # 0. 清理旧版在文件夹内部空白处产生歧义的旧项
+    Remove-LegacyKey -SubKey "Directory\Background\shell\SetAppIcon"
+    Remove-LegacyKey -SubKey "Directory\Background\shell\RestoreAppIcon"
+
+    # 1. 选中单个文件夹右键：设置该文件夹应用图标
     Set-RegKeyAndValues -SubKey "Directory\shell\SetAppIcon" `
         -DefaultText "应用此文件夹内程序图标" `
         -IconPath "imageres.dll,114" `
-        -CommandString "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptTarget`" -Path `"%1`""
+        -CommandString "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command `"& '$scriptTarget' -Path '%1'`""
 
-    # 2. 文件夹内部空白处右键：设置应用图标
-    Set-RegKeyAndValues -SubKey "Directory\Background\shell\SetAppIcon" `
-        -DefaultText "应用当前文件夹内程序图标" `
-        -IconPath "imageres.dll,114" `
-        -CommandString "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptTarget`" -Path `"%V`""
-
-    # 3. 选中文件夹右键：还原默认图标
+    # 2. 选中单个文件夹右键：还原该文件夹为默认图标
     Set-RegKeyAndValues -SubKey "Directory\shell\RestoreAppIcon" `
         -DefaultText "还原为默认文件夹图标" `
         -IconPath "shell32.dll,3" `
-        -CommandString "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptTarget`" -Path `"%1`" -Restore"
+        -CommandString "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command `"& '$scriptTarget' -Path '%1' -Restore`""
 
-    # 4. 文件夹内部空白处右键：还原默认图标
-    Set-RegKeyAndValues -SubKey "Directory\Background\shell\RestoreAppIcon" `
-        -DefaultText "还原当前文件夹图标" `
+    # 3. 文件夹内部空白处右键：批量应用所有子文件夹图标
+    Set-RegKeyAndValues -SubKey "Directory\Background\shell\SetSubFolderIcons" `
+        -DefaultText "批量应用所有子文件夹图标" `
+        -IconPath "imageres.dll,114" `
+        -CommandString "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command `"& '$scriptTarget' -Path '%V' -AllSubFolders`""
+
+    # 4. 文件夹内部空白处右键：批量还原所有子文件夹图标
+    Set-RegKeyAndValues -SubKey "Directory\Background\shell\RestoreSubFolderIcons" `
+        -DefaultText "批量还原所有子文件夹图标" `
         -IconPath "shell32.dll,3" `
-        -CommandString "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptTarget`" -Path `"%V`" -Restore"
+        -CommandString "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command `"& '$scriptTarget' -Path '%V' -AllSubFolders -Restore`""
 
     Write-Host "[成功] 右键菜单已成功注册！" -ForegroundColor Green
-    Write-Host "已添加以下项：" -ForegroundColor White
-    Write-Host "  1. 文件夹右键 -> [应用此文件夹内程序图标]" -ForegroundColor DarkGreen
-    Write-Host "  2. 文件夹空白处右键 -> [应用当前文件夹内程序图标]" -ForegroundColor DarkGreen
-    Write-Host "  3. 文件夹右键 -> [还原为默认文件夹图标]" -ForegroundColor DarkGreen
-    Write-Host "  4. 文件夹空白处右键 -> [还原当前文件夹图标]" -ForegroundColor DarkGreen
-    Write-Host "`n现在可以在任意文件夹上右键直接使用了！" -ForegroundColor Cyan
+    Write-Host "已配置以下操作逻辑：" -ForegroundColor White
+    Write-Host "  [选中文件夹]   右键 -> [应用此文件夹内程序图标] (仅设置当前单个文件夹)" -ForegroundColor DarkGreen
+    Write-Host "  [选中文件夹]   右键 -> [还原为默认文件夹图标]   (仅还原当前单个文件夹)" -ForegroundColor DarkGreen
+    Write-Host "  [文件夹空白处] 右键 -> [批量应用所有子文件夹图标] (批量处理其下所有子文件夹)" -ForegroundColor DarkGreen
+    Write-Host "  [文件夹空白处] 右键 -> [批量还原所有子文件夹图标] (批量还原其下所有子文件夹)" -ForegroundColor DarkGreen
+    Write-Host "`n现在可以打开资源管理器体验了！" -ForegroundColor Cyan
 } catch {
     Write-Error "注册失败: $_"
     exit 1

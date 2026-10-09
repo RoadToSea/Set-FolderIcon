@@ -12,9 +12,11 @@ param()
 
 $keysToRemove = @(
     "Directory\shell\SetAppIcon",
-    "Directory\Background\shell\SetAppIcon",
     "Directory\shell\RestoreAppIcon",
-    "Directory\Background\shell\RestoreAppIcon"
+    "Directory\Background\shell\SetAppIcon",
+    "Directory\Background\shell\RestoreAppIcon",
+    "Directory\Background\shell\SetSubFolderIcons",
+    "Directory\Background\shell\RestoreSubFolderIcons"
 )
 
 $roots = @(
